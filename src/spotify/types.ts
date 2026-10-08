@@ -17,6 +17,8 @@ export interface Device {
 }
 
 export interface Track {
+  /** "track" en canciones. Las playlists también pueden contener objetos "episode". */
+  type?: string;
   /** `null` en archivos locales. */
   id: string | null;
   uri: string;
@@ -31,6 +33,7 @@ export interface Track {
 export interface PlaybackState {
   device: Device;
   is_playing: boolean;
+  shuffle_state?: boolean;
   progress_ms: number | null;
   /** `null` durante anuncios y con contenido que no es una canción. */
   item: Track | null;

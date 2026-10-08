@@ -9,10 +9,13 @@ import type { PlaybackState } from './types';
 const ACTIVE_INTERVAL_MS = 3_000;
 /** Intervalo sin foco, sin reproducción activa o tras un fallo. */
 const IDLE_INTERVAL_MS = 30_000;
+/** Spotify tarda un momento en reflejar un comando en GET /me/player; es la espera para `refreshSoon`. */
+export const REFRESH_AFTER_COMMAND_MS = 500;
 
 /** Consulta periódicamente GET /me/player y publica el estado de reproducción. */
 export class PlaybackMonitor implements vscode.Disposable {
   private current: PlaybackState | undefined;
+  private loggedTrack: string | undefined;
   private readAt = 0;
   private running = false;
   private timer: NodeJS.Timeout | undefined;
@@ -87,6 +90,18 @@ export class PlaybackMonitor implements vscode.Disposable {
     this.emitter.fire(state);
   }
 
+  /** Anota en el log cada canción nueva que informa Spotify: deja ver qué sonó de verdad tras un comando. */
+  private logTrackChange(state: PlaybackState | undefined): void {
+    const uri = state?.item?.uri;
+    if (uri === this.loggedTrack) {
+      return;
+    }
+    this.loggedTrack = uri;
+    if (state?.item) {
+      this.log.info(`Suena «${state.item.name}»${state.shuffle_state ? ' (modo aleatorio activado)' : ''}.`);
+    }
+  }
+
   private clearTimer(): void {
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -122,6 +137,7 @@ export class PlaybackMonitor implements vscode.Disposable {
       }
       // El progreso que informa Spotify corresponde, aproximadamente, a la mitad del viaje de la petición.
       this.readAt = (sentAt + Date.now()) / 2;
+      this.logTrackChange(state);
       this.publish(state);
       delay = vscode.window.state.focused && state?.is_playing ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS;
     } catch (err) {

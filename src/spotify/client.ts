@@ -74,11 +74,10 @@ export class SpotifyClient {
     const text = await res.text();
     const body = parseJson(text);
     if (!res.ok) {
-      throw new SpotifyApiError(
-        res.status,
-        body?.error?.message ?? `Spotify respondió ${res.status}.`,
-        body?.error?.reason,
-      );
+      const message: string = body?.error?.message ?? `Spotify respondió ${res.status}.`;
+      const reason: string | undefined = body?.error?.reason;
+      this.log.warn(`${method} ${path} → ${res.status}: ${message}${reason ? ` [${reason}]` : ''}`);
+      throw new SpotifyApiError(res.status, message, reason);
     }
     return body;
   }

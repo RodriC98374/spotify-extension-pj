@@ -9,6 +9,14 @@ export function isNoActiveDevice(err: unknown): boolean {
   );
 }
 
+/**
+ * 404 sin `reason`, con el mensaje "Not found.". Spotify no dice qué no encontró; en un comando del
+ * reproductor suele ser el dispositivo, que figura como activo pero ya no recibe órdenes.
+ */
+export function isDeviceUnreachable(err: unknown): boolean {
+  return err instanceof SpotifyApiError && err.status === 404 && !isNoActiveDevice(err);
+}
+
 /** Endpoints del reproductor. Con `deviceId` el comando va a ese dispositivo; sin él, al que esté activo. */
 export class Player {
   constructor(private readonly client: SpotifyClient) {}
@@ -27,18 +35,26 @@ export class Player {
     await this.client.put('/me/player/play', { query: { device_id: deviceId } });
   }
 
-  /**
-   * Reproduce una canción dentro de su álbum, para que al terminar sigan las pistas siguientes.
-   * Una canción suelta (`uris`) se queda sin nada detrás y la reproducción se detiene al acabar.
-   */
+  /** Reproduce un álbum o una playlist; con `trackUri` empieza en esa canción y sigue desde ahí. */
+  async playContext(contextUri: string, trackUri?: string, deviceId?: string): Promise<void> {
+    await this.client.put('/me/player/play', {
+      query: { device_id: deviceId },
+      body: { context_uri: contextUri, offset: trackUri ? { uri: trackUri } : undefined },
+    });
+  }
+
+  /** Reproduce esas canciones en orden. Sin contexto detrás, la reproducción se detiene al acabar la lista. */
+  async playUris(uris: string[], deviceId?: string): Promise<void> {
+    // Sin `offset`, un reproductor con el modo aleatorio activado puede empezar por cualquiera de la lista.
+    const offset = uris.length > 1 ? { position: 0 } : undefined;
+    await this.client.put('/me/player/play', { query: { device_id: deviceId }, body: { uris, offset } });
+  }
+
+  /** Reproduce una canción dentro de su álbum, para que al terminar sigan las pistas siguientes. */
   async playTrack(track: Track, deviceId?: string): Promise<void> {
-    const query = { device_id: deviceId };
     if (track.album.uri) {
       try {
-        await this.client.put('/me/player/play', {
-          query,
-          body: { context_uri: track.album.uri, offset: { uri: track.uri } },
-        });
+        await this.playContext(track.album.uri, track.uri, deviceId);
         return;
       } catch (err) {
         // Si Spotify no acepta ese álbum como contexto, se reproduce la canción suelta.
@@ -49,7 +65,7 @@ export class Player {
         }
       }
     }
-    await this.client.put('/me/player/play', { query, body: { uris: [track.uri] } });
+    await this.playUris([track.uri], deviceId);
   }
 
   async pause(deviceId?: string): Promise<void> {
@@ -62,6 +78,10 @@ export class Player {
 
   async previous(deviceId?: string): Promise<void> {
     await this.client.post('/me/player/previous', { query: { device_id: deviceId } });
+  }
+
+  async setShuffle(shuffle: boolean, deviceId?: string): Promise<void> {
+    await this.client.put('/me/player/shuffle', { query: { state: String(shuffle), device_id: deviceId } });
   }
 
   async setVolume(percent: number, deviceId?: string): Promise<void> {
