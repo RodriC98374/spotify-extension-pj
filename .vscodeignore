@@ -1,0 +1,10 @@
+.vscode/**
+.claude/**
+src/**
+node_modules/**
+dist/**/*.map
+esbuild.js
+tsconfig.json
+package-lock.json
+.gitignore
+CLAUDE.md

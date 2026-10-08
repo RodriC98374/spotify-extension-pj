@@ -1,0 +1,153 @@
+{
+  "name": "spotify-local",
+  "displayName": "Spotify Local",
+  "description": "Controla Spotify, busca canciones y muestra la letra sincronizada desde VS Code. Uso personal.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RodriC98374/spotify-extension-pj.git"
+  },
+  "engines": {
+    "vscode": "^1.140.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "spotifyLocal.login",
+        "title": "Iniciar sesión",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.logout",
+        "title": "Cerrar sesión",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.playPause",
+        "title": "Reproducir / Pausar",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.next",
+        "title": "Siguiente canción",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.previous",
+        "title": "Canción anterior",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.setVolume",
+        "title": "Ajustar volumen",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.volumeUp",
+        "title": "Subir volumen",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.volumeDown",
+        "title": "Bajar volumen",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.transferPlayback",
+        "title": "Transferir reproducción a un dispositivo",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.search",
+        "title": "Buscar canción",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.showLyrics",
+        "title": "Mostrar letra",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.toggleStatusBarLyrics",
+        "title": "Activar o desactivar la letra en la barra de estado",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.lyricsOffsetIncrease",
+        "title": "Subir offset de la letra (+250 ms)",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.lyricsOffsetDecrease",
+        "title": "Bajar offset de la letra (−250 ms)",
+        "category": "Spotify"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "spotifyLocal",
+          "title": "Spotify Local",
+          "icon": "media/lyrics.svg"
+        }
+      ]
+    },
+    "views": {
+      "spotifyLocal": [
+        {
+          "type": "webview",
+          "id": "spotifyLocal.lyrics",
+          "name": "Letra"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Spotify Local",
+      "properties": {
+        "spotifyLocal.clientId": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "Client ID de tu app en el [Spotify Developer Dashboard](https://developer.spotify.com/dashboard). La app debe tener registrado el Redirect URI `http://127.0.0.1:8888/callback`. No se usa Client Secret."
+        },
+        "spotifyLocal.lyricsOffsetMs": {
+          "type": "number",
+          "default": 0,
+          "markdownDescription": "Desfase de la letra en milisegundos. Un valor positivo adelanta la letra; uno negativo la retrasa, que es lo que compensa la latencia de unos audífonos Bluetooth."
+        },
+        "spotifyLocal.showLyricsInStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Muestra la línea actual de la letra en la barra de estado."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "npm run check-types && node esbuild.js --production",
+    "vscode:prepublish": "npm run package",
+    "vsix": "npx --yes @vscode/vsce package --no-dependencies --skip-license"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "@types/vscode": "1.140.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
