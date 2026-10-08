@@ -18,6 +18,13 @@ export class SessionExpiredError extends NotLoggedInError {
   }
 }
 
+/** La sesión es anterior a un permiso que ahora hace falta; se resuelve iniciando sesión otra vez. */
+export class MissingScopeError extends NotLoggedInError {
+  constructor() {
+    super('Para acceder a tu biblioteca de Spotify hay que volver a iniciar sesión y aceptar el permiso nuevo.');
+  }
+}
+
 export class LoginCancelledError extends AuthError {
   constructor() {
     super('Inicio de sesión cancelado.');

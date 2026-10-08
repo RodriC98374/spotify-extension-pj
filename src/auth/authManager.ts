@@ -7,7 +7,10 @@ import { StoredTokens, TokenStore } from './tokenStore';
 
 const AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
-const SCOPES = ['user-read-playback-state', 'user-modify-playback-state', 'user-read-currently-playing'];
+const PLAYBACK_SCOPES = ['user-read-playback-state', 'user-modify-playback-state', 'user-read-currently-playing'];
+/** Lectura de playlists y canciones guardadas. Una sesión iniciada antes de existir la biblioteca no los tiene. */
+export const LIBRARY_SCOPES = ['playlist-read-private', 'playlist-read-collaborative', 'user-library-read'];
+const SCOPES = [...PLAYBACK_SCOPES, ...LIBRARY_SCOPES];
 
 /** El access token se renueva cuando le queda menos de este margen. */
 const EXPIRY_MARGIN_MS = 60_000;
@@ -36,10 +39,14 @@ export class AuthManager implements vscode.Disposable {
   private refreshing: Promise<StoredTokens> | undefined;
   private loginInProgress = false;
   private loggedIn: boolean | undefined;
+  private grantedScope = '';
   private readonly sessionEmitter = new vscode.EventEmitter<boolean>();
   private readonly subscription: vscode.Disposable;
 
-  /** Se dispara con `true` al iniciar sesión y con `false` al cerrarla o perderla, también desde otra ventana. */
+  /**
+   * Se dispara con `true` al iniciar sesión y con `false` al cerrarla o perderla, también desde otra
+   * ventana. Vuelve a dispararse con `true` si un nuevo inicio de sesión cambia los permisos concedidos.
+   */
   readonly onDidChangeSession = this.sessionEmitter.event;
 
   constructor(
@@ -56,6 +63,12 @@ export class AuthManager implements vscode.Disposable {
 
   async isLoggedIn(): Promise<boolean> {
     return (await this.store.get()) !== undefined;
+  }
+
+  /** Indica si la sesión actual tiene concedidos todos esos permisos. */
+  async hasScopes(required: string[]): Promise<boolean> {
+    const granted = new Set((await this.store.get())?.scope.split(' '));
+    return required.every((scope) => granted.has(scope));
   }
 
   async login(): Promise<void> {
@@ -190,16 +203,19 @@ export class AuthManager implements vscode.Disposable {
       throw new SessionExpiredError();
     }
     // La respuesta puede no traer refresh token; en ese caso sigue valiendo el anterior.
-    const tokens = toStoredTokens(response, response.refresh_token ?? current.refreshToken);
+    const tokens = toStoredTokens(response, response.refresh_token ?? current.refreshToken, current.scope);
     await this.store.set(tokens);
     this.log.info(`Token renovado; vence a las ${new Date(tokens.expiresAt).toLocaleTimeString()}.`);
     return tokens;
   }
 
   private async syncSession(): Promise<void> {
-    const loggedIn = await this.isLoggedIn();
-    if (loggedIn !== this.loggedIn) {
+    const tokens = await this.store.get();
+    const loggedIn = tokens !== undefined;
+    const scope = tokens?.scope ?? '';
+    if (loggedIn !== this.loggedIn || scope !== this.grantedScope) {
       this.loggedIn = loggedIn;
+      this.grantedScope = scope;
       this.sessionEmitter.fire(loggedIn);
     }
   }
@@ -224,12 +240,13 @@ function isFresh(tokens: StoredTokens): boolean {
   return Date.now() < tokens.expiresAt - EXPIRY_MARGIN_MS;
 }
 
-function toStoredTokens(response: TokenResponse, refreshToken: string): StoredTokens {
+/** `previousScope` cubre las renovaciones cuya respuesta no repite los permisos concedidos. */
+function toStoredTokens(response: TokenResponse, refreshToken: string, previousScope = ''): StoredTokens {
   return {
     accessToken: response.access_token,
     refreshToken,
     expiresAt: Date.now() + response.expires_in * 1000,
-    scope: response.scope ?? '',
+    scope: response.scope ?? previousScope,
   };
 }
 
