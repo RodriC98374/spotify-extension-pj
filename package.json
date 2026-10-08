@@ -2,7 +2,7 @@
   "name": "spotify-local",
   "displayName": "Spotify Local",
   "description": "Controla Spotify, busca canciones y muestra la letra sincronizada desde VS Code. Uso personal.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "local",
   "private": true,
   "license": "UNLICENSED",
@@ -51,6 +51,11 @@
         "category": "Spotify"
       },
       {
+        "command": "spotifyLocal.toggleShuffle",
+        "title": "Activar o desactivar el modo aleatorio",
+        "category": "Spotify"
+      },
+      {
         "command": "spotifyLocal.setVolume",
         "title": "Ajustar volumen",
         "category": "Spotify"
@@ -94,6 +99,43 @@
         "command": "spotifyLocal.lyricsOffsetDecrease",
         "title": "Bajar offset de la letra (−250 ms)",
         "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.pickFromLibrary",
+        "title": "Elegir de mi biblioteca",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.showLibrary",
+        "title": "Mostrar biblioteca",
+        "category": "Spotify"
+      },
+      {
+        "command": "spotifyLocal.refreshLibrary",
+        "title": "Actualizar biblioteca",
+        "category": "Spotify",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "spotifyLocal.refreshLibrary",
+          "when": "view == spotifyLocal.library",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "spotifyLocal.library",
+        "contents": "Inicia sesión para ver tus playlists y tus me gusta.\n[Iniciar sesión](command:spotifyLocal.login)",
+        "when": "spotifyLocal.library == loggedOut"
+      },
+      {
+        "view": "spotifyLocal.library",
+        "contents": "Para ver tu biblioteca hay que volver a iniciar sesión y aceptar el permiso nuevo de Spotify.\n[Volver a iniciar sesión](command:spotifyLocal.login)",
+        "when": "spotifyLocal.library == needsPermission"
       }
     ],
     "viewsContainers": {
@@ -111,6 +153,11 @@
           "type": "webview",
           "id": "spotifyLocal.lyrics",
           "name": "Letra"
+        },
+        {
+          "id": "spotifyLocal.library",
+          "name": "Biblioteca",
+          "visibility": "collapsed"
         }
       ]
     },

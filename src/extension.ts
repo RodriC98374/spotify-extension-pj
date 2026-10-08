@@ -12,10 +12,14 @@ import { describeError } from './errors';
 import { LyricsSource } from './lyrics/lrclib';
 import { LyricsSync } from './lyrics/lyricsSync';
 import { SpotifyClient } from './spotify/client';
+import { Library } from './spotify/library';
 import { PlaybackMonitor } from './spotify/playbackMonitor';
 import { Player } from './spotify/player';
 import { searchTracks } from './spotify/search';
 import type { UserProfile } from './spotify/types';
+import { DeviceGuard } from './ui/deviceGuard';
+import { createLibraryCommands } from './ui/libraryCommands';
+import { LibraryTreeProvider } from './ui/libraryView';
 import { LyricsViewProvider } from './ui/lyricsView';
 import { showError } from './ui/notifications';
 import { createPlaybackCommands } from './ui/playbackCommands';
@@ -36,6 +40,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const lyricsSource = new LyricsSource(userAgent, log);
   const lyrics = new LyricsSync(monitor, (track) => lyricsSource.get(track), getLyricsOffsetMs);
   const lyricsView = new LyricsViewProvider(lyrics);
+  const guard = new DeviceGuard(player, log);
+  const library = new Library(client, auth);
+  const libraryView = new LibraryTreeProvider(library, auth);
   context.subscriptions.push(
     log,
     store,
@@ -44,14 +51,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     statusBar,
     lyrics,
     lyricsView,
+    library,
+    libraryView,
     vscode.window.registerWebviewViewProvider(LyricsViewProvider.viewId, lyricsView),
+    vscode.window.registerTreeDataProvider(LibraryTreeProvider.viewId, libraryView),
   );
 
-  const register = (id: string, handler: () => unknown): void => {
+  const register = (id: string, handler: (...args: any[]) => unknown): void => {
     context.subscriptions.push(
-      vscode.commands.registerCommand(id, async () => {
+      vscode.commands.registerCommand(id, async (...args: unknown[]) => {
         try {
-          await handler();
+          await handler(...args);
         } catch (err) {
           log.error(`${id}: ${describeError(err)}`);
           await showError(err);
@@ -70,7 +80,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await auth.logout();
     void vscode.window.showInformationMessage('Spotify: sesión cerrada.');
   });
-  const commands = createPlaybackCommands(player, monitor, (query) => searchTracks(client, query));
+  const commands = {
+    ...createPlaybackCommands(player, monitor, guard, (query) => searchTracks(client, query)),
+    ...createLibraryCommands(library, player, guard, monitor),
+  };
   for (const [id, handler] of Object.entries(commands)) {
     register(id, handler);
   }
@@ -110,6 +123,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       render();
       renderLyric();
+      // Otra cuenta u otros permisos: lo cargado de la biblioteca deja de valer.
+      library.clear();
+      void libraryView.refreshAccess();
     }),
   );
   await auth.initialize();

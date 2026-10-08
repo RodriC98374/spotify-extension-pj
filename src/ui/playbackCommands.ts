@@ -1,82 +1,20 @@
 import * as vscode from 'vscode';
 import { SpotifyApiError } from '../spotify/client';
-import type { PlaybackMonitor } from '../spotify/playbackMonitor';
-import { isNoActiveDevice, Player } from '../spotify/player';
+import { PlaybackMonitor, REFRESH_AFTER_COMMAND_MS } from '../spotify/playbackMonitor';
+import type { Player } from '../spotify/player';
 import type { Device, Track } from '../spotify/types';
-import { ControllableDevice, pickDevice, pickTrack, pickVolume } from './quickPicks';
+import { DeviceGuard, SETTLE_AFTER_TRANSFER_MS } from './deviceGuard';
+import { pickTrack, pickVolume } from './quickPicks';
 
 const VOLUME_STEP = 10;
-/** Spotify tarda un momento en reflejar un comando en GET /me/player. */
-const REFRESH_AFTER_COMMAND_MS = 500;
-/** Margen para que el dispositivo recién elegido quede activo antes de reintentar el comando. */
-const SETTLE_AFTER_TRANSFER_MS = 700;
 
 /** Handlers de los comandos de reproducción y búsqueda, indexados por id de comando. */
 export function createPlaybackCommands(
   player: Player,
   monitor: PlaybackMonitor,
+  guard: DeviceGuard,
   search: (query: string) => Promise<Track[]>,
 ): Record<string, () => Promise<void>> {
-  /** Lista los dispositivos, deja elegir uno y le transfiere la reproducción. */
-  const transferToChosenDevice = async (): Promise<ControllableDevice | undefined> => {
-    const devices = (await player.getDevices()).filter(
-      (device): device is ControllableDevice => device.id !== null && !device.is_restricted,
-    );
-    if (devices.length === 0) {
-      void vscode.window.showWarningMessage(
-        'Spotify: no se encontró ningún dispositivo. Abre Spotify en tu celular o computador y vuelve a intentarlo.',
-      );
-      return undefined;
-    }
-    const device = await pickDevice(devices);
-    if (!device) {
-      return undefined;
-    }
-    await player.transfer(device.id, false);
-    return device;
-  };
-
-  const offerTransfer = async (): Promise<ControllableDevice | undefined> => {
-    const choice = await vscode.window.showWarningMessage(
-      'Spotify: no hay ningún dispositivo activo.',
-      'Elegir dispositivo',
-    );
-    if (!choice) {
-      return undefined;
-    }
-    const device = await transferToChosenDevice();
-    if (device) {
-      await new Promise((resolve) => setTimeout(resolve, SETTLE_AFTER_TRANSFER_MS));
-    }
-    return device;
-  };
-
-  /**
-   * Ejecuta un comando del reproductor. Si falla por falta de dispositivo activo, ofrece transferir
-   * la reproducción y lo reintenta apuntando al dispositivo elegido. Devuelve false si no se ejecutó.
-   */
-  const withDevice = async (action: (deviceId?: string) => Promise<void>): Promise<boolean> => {
-    try {
-      await action();
-      return true;
-    } catch (err) {
-      if (!isNoActiveDevice(err)) {
-        throw err;
-      }
-    }
-    const device = await offerTransfer();
-    if (!device) {
-      return false;
-    }
-    await action(device.id);
-    return true;
-  };
-
-  /** El dispositivo activo o, si no hay ninguno, el que el usuario elija para transferir. */
-  const activeDevice = async (): Promise<Device | undefined> => {
-    return (await player.getPlayback())?.device ?? (await offerTransfer());
-  };
-
   /** Dispositivos a los que Spotify ya les rechazó un cambio de volumen en esta sesión. */
   const volumeRejected = new Set<string>();
   const deviceKey = (device: Device): string => device.id ?? device.name;
@@ -117,7 +55,7 @@ export function createPlaybackCommands(
   };
 
   const stepVolume = async (delta: number): Promise<void> => {
-    const device = await activeDevice();
+    const device = await guard.activeDevice();
     if (!device || volumeBlocked(device)) {
       return;
     }
@@ -126,7 +64,7 @@ export function createPlaybackCommands(
   };
 
   const skip = async (action: (deviceId?: string) => Promise<void>): Promise<void> => {
-    if (await withDevice(action)) {
+    if (await guard.run(action)) {
       monitor.refreshSoon(REFRESH_AFTER_COMMAND_MS);
     }
   };
@@ -135,19 +73,27 @@ export function createPlaybackCommands(
     'spotifyLocal.playPause': async () => {
       const state = await player.getPlayback();
       if (state?.is_playing) {
-        await player.pause();
-        monitor.patch({ is_playing: false });
-      } else if (await withDevice((deviceId) => player.play(deviceId))) {
+        if (await guard.run((deviceId) => player.pause(deviceId))) {
+          monitor.patch({ is_playing: false });
+        }
+      } else if (await guard.run((deviceId) => player.play(deviceId))) {
         monitor.patch({ is_playing: true });
       }
       monitor.refreshSoon(REFRESH_AFTER_COMMAND_MS);
     },
     'spotifyLocal.next': () => skip((deviceId) => player.next(deviceId)),
     'spotifyLocal.previous': () => skip((deviceId) => player.previous(deviceId)),
+    'spotifyLocal.toggleShuffle': async () => {
+      const shuffle = !(await player.getPlayback())?.shuffle_state;
+      if (await guard.run((deviceId) => player.setShuffle(shuffle, deviceId))) {
+        monitor.patch({ shuffle_state: shuffle });
+        monitor.refreshSoon(REFRESH_AFTER_COMMAND_MS);
+      }
+    },
     'spotifyLocal.volumeUp': () => stepVolume(VOLUME_STEP),
     'spotifyLocal.volumeDown': () => stepVolume(-VOLUME_STEP),
     'spotifyLocal.setVolume': async () => {
-      const device = await activeDevice();
+      const device = await guard.activeDevice();
       if (!device || volumeBlocked(device)) {
         return;
       }
@@ -157,13 +103,13 @@ export function createPlaybackCommands(
       }
     },
     'spotifyLocal.transferPlayback': async () => {
-      if (await transferToChosenDevice()) {
+      if (await guard.transferToChosenDevice()) {
         monitor.refreshSoon(SETTLE_AFTER_TRANSFER_MS);
       }
     },
     'spotifyLocal.search': async () => {
       const track = await pickTrack(search);
-      if (track && (await withDevice((deviceId) => player.playTrack(track, deviceId)))) {
+      if (track && (await guard.run((deviceId) => player.playTrack(track, deviceId)))) {
         monitor.patch({ is_playing: true, item: track, progress_ms: 0 });
         monitor.refreshSoon(REFRESH_AFTER_COMMAND_MS);
       }

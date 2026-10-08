@@ -12,6 +12,7 @@ export class StatusBar implements vscode.Disposable {
   private readonly previous = createItem('previous', 'Spotify: anterior', 45.5, 'spotifyLocal.previous');
   private readonly playPause = createItem('playPause', 'Spotify: reproducir o pausar', 45.4, 'spotifyLocal.playPause');
   private readonly next = createItem('next', 'Spotify: siguiente', 45.3, 'spotifyLocal.next');
+  private readonly shuffle = createItem('shuffle', 'Spotify: modo aleatorio', 45.25, 'spotifyLocal.toggleShuffle');
   private readonly track = createItem('track', 'Spotify: canción actual', 45.2);
   private readonly volume = createItem('volume', 'Spotify: volumen', 45.1, 'spotifyLocal.setVolume');
   private readonly lyric = createItem('lyric', 'Spotify: letra', 45.0, 'spotifyLocal.showLyrics');
@@ -32,10 +33,18 @@ export class StatusBar implements vscode.Disposable {
     }
     // El botón de volumen solo aparece si el dispositivo activo declara que admite control remoto.
     setVisible(this.volume, loggedIn && state?.device.supports_volume === true);
+    // Sin reproducción activa no se sabe si el modo aleatorio está puesto.
+    const shuffle = state?.shuffle_state;
+    setVisible(this.shuffle, loggedIn && shuffle !== undefined);
     if (!loggedIn) {
       return;
     }
 
+    // No hay icono de "aleatorio" en los codicons: flechas cruzadas si está activado, lista numerada si va en orden.
+    this.shuffle.text = shuffle ? '$(arrow-swap)' : '$(list-ordered)';
+    this.shuffle.tooltip = shuffle
+      ? 'Modo aleatorio activado. Clic para reproducir en orden.'
+      : 'Reproducción en orden. Clic para activar el modo aleatorio.';
     this.playPause.text = state?.is_playing ? '$(debug-pause)' : '$(play)';
     this.playPause.tooltip = state?.is_playing ? 'Pausar' : 'Reproducir';
     this.track.text = `$(music) ${truncate(trackLabel(state))}`;
@@ -56,7 +65,8 @@ export class StatusBar implements vscode.Disposable {
   }
 
   dispose(): void {
-    for (const item of [this.login, this.previous, this.playPause, this.next, this.track, this.volume, this.lyric]) {
+    const items = [this.login, this.previous, this.playPause, this.next, this.shuffle, this.track, this.volume, this.lyric];
+    for (const item of items) {
       item.dispose();
     }
   }

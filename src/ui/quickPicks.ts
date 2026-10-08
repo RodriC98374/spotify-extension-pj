@@ -10,7 +10,7 @@ const VOLUME_LEVELS = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
 const SEARCH_DEBOUNCE_MS = 350;
 const MIN_QUERY_LENGTH = 2;
 
-type TrackItem = vscode.QuickPickItem & { track?: Track };
+export type TrackItem = vscode.QuickPickItem & { track?: Track };
 
 /**
  * QuickPick de búsqueda: llama a `search` mientras se escribe y se resuelve con la canción elegida,
@@ -33,7 +33,9 @@ export function pickTrack(search: (query: string) => Promise<Track[]>): Promise<
       try {
         const tracks = await search(query);
         if (ticket === latest) {
-          quickPick.items = tracks.length > 0 ? tracks.map(toTrackItem) : [messageItem('Sin resultados')];
+          // Spotify ya filtró los resultados; sin `alwaysShow` el QuickPick ocultaría los que no contienen el texto escrito.
+          quickPick.items =
+            tracks.length > 0 ? tracks.map((track) => trackItem(track, true)) : [messageItem('Sin resultados')];
         }
       } catch (err) {
         if (ticket !== latest) {
@@ -80,13 +82,13 @@ export function pickTrack(search: (query: string) => Promise<Track[]>): Promise<
   });
 }
 
-function toTrackItem(track: Track): TrackItem {
+/** Con `alwaysShow` el elemento no pasa por el filtro de texto del QuickPick. */
+export function trackItem(track: Track, alwaysShow: boolean): TrackItem {
   return {
     label: track.name,
     description: track.artists.map((artist) => artist.name).join(', '),
     detail: `${track.album.name} · ${formatDuration(track.duration_ms)}`,
-    // Spotify ya filtró los resultados; sin esto el QuickPick ocultaría los que no contienen el texto escrito.
-    alwaysShow: true,
+    alwaysShow,
     track,
   };
 }
