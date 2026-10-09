@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Qué es
 
-Extensión personal de VS Code en TypeScript para controlar Spotify, buscar canciones y ver la letra sincronizada en tiempo real. Es de uso propio: se instala como `.vsix` y no se publica en el Marketplace.
+Extensión personal de VS Code en TypeScript para controlar Spotify, buscar canciones y ver la letra sincronizada en tiempo real, con su traducción al español. Es de uso propio: se instala como `.vsix` y no se publica en el Marketplace.
 
 No reproduce audio. Controla por Web API el dispositivo activo del usuario (cuenta Premium; normalmente el celular con audífonos Bluetooth). Los textos de UI y los comentarios de código van en español; los identificadores, en inglés.
 
@@ -24,9 +24,9 @@ Ampliaciones pedidas después, en este orden:
 7. Más aciertos de letra exprimiendo LRCLIB (búsqueda libre, otros artistas de la canción).
 8. Letra traducida al español junto a la original, con un servicio de traducción gratuito.
 
-**Etapa actual:** 1 a 6 probadas y aceptadas por el usuario; la siguiente es la 7. El 404 "Not found." (ver Controles) no volvió a aparecer en sus pruebas, pero su causa no quedó confirmada. Actualizar esta línea al cerrar cada etapa.
+**Etapa actual:** 1 a 7 probadas por el usuario; de la 7 dijo el 2026-10-09 que no parece haber errores. De la 8 dijo ese mismo día "está bien". Las ocho etapas previstas están hechas; lo que siga hay que acordarlo con él. El 404 "Not found." (ver Controles) no volvió a aparecer en sus pruebas, pero su causa no quedó confirmada. Actualizar esta línea al cerrar cada etapa.
 
-Sobre la etapa 8: no existe una fuente gratuita de letras ya traducidas (LRCLIB no las guarda; Musixmatch exige clave), así que será traducción automática. Hay que preguntar al usuario qué servicio prefiere antes de construirla.
+Sobre la etapa 8: no existe una fuente gratuita de letras ya traducidas (LRCLIB no las guarda; Musixmatch exige clave), así que es traducción automática. Al usuario se le propusieron MyMemory, Copilot dentro de VS Code y DeepL API Free, con el cupo de cada uno; el 2026-10-09 aceptó seguir con la recomendación, MyMemory. No quiere pagar nada.
 
 ## Repositorio público
 
@@ -55,11 +55,12 @@ No hay tests ni linter configurados.
 ## Reglas fijas
 
 - Nunca usar ni pedir Client Secret. El Client ID se lee del ajuste `spotifyLocal.clientId`.
-- Solo Web API oficial de Spotify y LRCLIB. Nada de APIs internas o no documentadas: ni `sp_dc`, ni endpoints de letras de Spotify.
+- Solo Web API oficial de Spotify, LRCLIB para las letras y MyMemory para traducirlas. Nada de APIs internas o no documentadas: ni `sp_dc`, ni endpoints de letras de Spotify.
 - Cero dependencias de runtime. `fetch` nativo, sin librerías de OAuth ni clientes HTTP.
 - Redirect URI fijo `http://127.0.0.1:8888/callback`, registrado en el Developer Dashboard. Spotify no acepta `localhost`. Si el puerto 8888 está ocupado se informa el error; no se cambia de puerto.
 - Scopes de reproducción: `user-read-playback-state`, `user-modify-playback-state`, `user-read-currently-playing`. Scopes de biblioteca, solo lectura: `playlist-read-private`, `playlist-read-collaborative`, `user-library-read`. No se piden más sin que el usuario lo apruebe: cada scope nuevo le obliga a iniciar sesión otra vez.
 - Los tokens viven solo en `context.secrets` y nunca se escriben en el log.
+- El correo de `spotifyLocal.translationEmail` es opcional, lo escribe el usuario en sus ajustes y solo viaja a MyMemory. No se escribe en el log ni en ningún archivo del repo, y la extensión no lo pide ni lo rellena por su cuenta.
 
 ## Arquitectura
 
@@ -72,11 +73,14 @@ No hay tests ni linter configurados.
 - `src/spotify/search.ts`: `searchTracks()` consulta `GET /search`.
 - `src/spotify/library.ts`: `Library` lee las playlists (`GET /me/playlists`), sus canciones (`GET /playlists/{id}/items`) y Tus me gusta (`GET /me/tracks`), de 50 en 50, con caché en memoria que comparten el árbol y el QuickPick. Antes de pedir nada comprueba que la sesión tenga los scopes de biblioteca y, si no, lanza `MissingScopeError`, que `showError()` convierte en una invitación a iniciar sesión de nuevo.
 - `src/lyrics/lrc.ts`: `parseLrc()`, sin dependencias.
-- `src/lyrics/lrclib.ts`: `LyricsSource` pide la letra a LRCLIB (`/get` y, si no hay coincidencia, `/search` con el título tal cual y luego sin añadidos como "- Remastered 2011") y la cachea por track ID. De `/search` solo se aceptan tiempos de versiones cuya duración difiera 3 s como mucho; si no hay ninguna, se usa el texto sin sincronizar.
+- `src/lyrics/lrclib.ts`: `LyricsSource` pide la letra a LRCLIB y la cachea por track ID. `buildQueries()` arma las consultas de la más exacta a la más laxa y `fetch()` las recorre hasta dar con una letra sincronizada cuya duración difiera 3 s como mucho; si no hay ninguna, devuelve el mejor texto sin tiempos que haya visto. El detalle está en "Más aciertos de letra (etapa 7)".
+- `src/lyrics/mymemory.ts`: `MyMemory` es el único punto que llama al servicio de traducción. `translate()` envía varias líneas en una consulta y devuelve una traducción por línea, o avisa de que el texto ya está en español, de que la respuesta no cuadra o, con `QuotaExceededError`, de que se agotó el cupo. `splitIntoBatches()` reparte las líneas en consultas de 500 bytes como mucho.
+- `src/lyrics/translationStore.ts`: `TranslationStore` guarda las traducciones en `context.globalStorageUri`, un archivo por canción, y sirve de memoria las últimas 50.
+- `src/lyrics/lyricsTranslator.ts`: `LyricsTranslator` traduce la letra que la vista le pide con `get()`: lee lo guardado, pide a MyMemory solo las líneas que faltan y publica cada avance por `onDidChange`. `cancel()` corta lo que quede por pedir.
 - `src/lyrics/lyricsSync.ts`: `LyricsSync` escucha al monitor, carga la letra al cambiar de canción y calcula la línea actual. Guarda un ancla (posición, instante) que cada lectura real reemplaza; entre lecturas interpola con un temporizador de 200 ms que se acorta para caer justo en el cambio de línea. Un cambio que llega por `patch()` no trae posición fiable: solo detiene o arranca el reloj. Una corrección menor de 400 ms no hace retroceder la línea. Al llegar el final previsto de la canción pide al monitor una lectura adelantada, una sola vez.
 - `src/ui/deviceGuard.ts`: `DeviceGuard.run()` es el paso obligado de todo comando que mande algo al reproductor: resuelve la falta de dispositivo activo y el 404 sin motivo, y reintenta una vez.
 - `src/ui/libraryView.ts`, `libraryPicker.ts` y `libraryCommands.ts`: el árbol "Biblioteca", el QuickPick en dos pasos y los handlers que ambos comparten. Los elementos del árbol disparan comandos `spotifyLocal.internal.*`, registrados pero sin declarar en `package.json` para que no salgan en la paleta. El árbol queda vacío sin sesión o sin permiso, y entonces VS Code muestra el `viewsWelcome` que corresponde a la clave de contexto `spotifyLocal.library` (`loggedOut`, `needsPermission` o `ready`).
-- `src/ui/`: `statusBar.ts` pinta la barra a partir de (sesión, estado); `playbackCommands.ts` contiene los handlers de los comandos de reproducción y de búsqueda; `quickPicks.ts`, los selectores de dispositivo, volumen y canción. `pickTrack()` hace el debounce (350 ms, mínimo 2 caracteres), descarta las respuestas atrasadas y marca cada resultado con `alwaysShow` para que el filtro propio del QuickPick no oculte lo que Spotify devolvió. `lyricsView.ts` es el `WebviewViewProvider` de la letra: el HTML y su script van en línea con CSP por nonce y el webview solo pinta lo que recibe (`content` con todas las líneas, `active` con el índice). Al ocultarse la vista su contenido se destruye; cuando vuelve, el script envía `ready` y recibe el estado completo. `showError()` en `notifications.ts` convierte los errores conocidos en avisos con acción (abrir ajustes, iniciar sesión).
+- `src/ui/`: `statusBar.ts` pinta la barra a partir de (sesión, estado); `playbackCommands.ts` contiene los handlers de los comandos de reproducción y de búsqueda; `quickPicks.ts`, los selectores de dispositivo, volumen y canción. `pickTrack()` hace el debounce (350 ms, mínimo 2 caracteres), descarta las respuestas atrasadas y marca cada resultado con `alwaysShow` para que el filtro propio del QuickPick no oculte lo que Spotify devolvió. `lyricsView.ts` es el `WebviewViewProvider` de la letra: el HTML y su script van en línea con CSP por nonce y el webview solo pinta lo que recibe (`content` con todas las líneas, `active` con el índice). Al ocultarse la vista su contenido se destruye; cuando vuelve, el script envía `ready` y recibe el estado completo. La vista es quien pide la traducción, y solo mientras está visible; la recibe dentro de `content` o, cuando llega después que la letra, en un mensaje `translation`. `showError()` en `notifications.ts` convierte los errores conocidos en avisos con acción (abrir ajustes, iniciar sesión).
 - `src/errors.ts`: `describeError()` da el texto legible de cualquier error, incluidos los fallos de red de `fetch`.
 
 Los handlers se registran en `extension.ts` a través de un `register()` común que captura cualquier error, lo escribe en el canal de salida "Spotify Local" y lo pasa a `showError()`. Un handler nuevo solo tiene que lanzar.
@@ -112,11 +116,38 @@ La canción se reproduce dentro de su álbum (`context_uri` del álbum y `offset
 
 ### Letra sincronizada (etapa 4)
 
-- **Fuente:** LRCLIB. Primero `/api/get`; si falla, `/api/search`. Se usa `syncedLyrics`; si solo hay `plainLyrics`, se muestra sin sincronizar. Si LRCLIB no tiene la canción, mensaje claro. Caché en memoria por track ID. Un 5xx de LRCLIB se trata como "no encontrada, pero dudoso": mensaje propio, sin reintentos y con caché de solo 5 minutos. Solo un fallo de red o un timeout se reintenta, cada 30 s mientras siga sonando esa canción.
+- **Fuente:** LRCLIB. Primero `/api/get`; si falla, `/api/search`. Se usa `syncedLyrics`; si solo hay `plainLyrics`, se muestra sin sincronizar. Si LRCLIB no tiene la canción, mensaje claro. Caché en memoria por track ID. Un fallo de red o un timeout se reintenta cada 30 s mientras siga sonando esa canción. Qué se consulta y qué pasa cuando LRCLIB está saturado se describe en la etapa 7.
 - **Sincronización:** polling a `GET /me/player` cada ~3 s para leer `progress_ms`. Entre lecturas se interpola con un temporizador de ~200 ms y el desfase se corrige en cada lectura. Hay que detectar cambio de canción, pausa y seek.
 - **Ahorro de peticiones:** con la ventana sin foco o sin reproducción activa el polling baja a ~30 s. La letra sigue por interpolación local y al recuperar el foco se hace una lectura inmediata.
 - **Vista:** `WebviewView` en un contenedor propio de la Activity Bar, con la línea actual resaltada y auto-scroll suave. La línea actual también va en la barra de estado, activable con `spotifyLocal.showLyricsInStatusBar`.
 - **Offset:** posición efectiva = `progress_ms + spotifyLocal.lyricsOffsetMs`. Un valor positivo adelanta la letra y uno negativo la retrasa, que es lo que compensa la latencia Bluetooth. Dos comandos lo suben y bajan en pasos de 250 ms.
+
+### Más aciertos de letra (etapa 7)
+
+El usuario pidió encontrar más letras sin pagar nada: todo sale de LRCLIB.
+
+- **Consultas, en este orden y sin repetidas:** `/get` con título, primer artista y álbum; `/get` sin álbum; `/get` con el título sin añadidos; si hay más de un artista, `/get` con todos unidos por ", " y `/get` con el segundo; `/search` por título y artista; `/search?q=` con título y artista como texto libre. Una canción sin letra cuesta entre 4 y 7 peticiones, una sola vez: el resultado queda en caché.
+- **Corte:** la búsqueda termina en la primera letra sincronizada cuya duración difiera 3 s como mucho. Una letra sin tiempos no la termina, porque una consulta posterior puede traer la sincronizada.
+- **Título sin añadidos:** se quita lo que sigue a " - " y los paréntesis o corchetes del final ("- Remastered 2011", "(feat. X)", "(En Vivo)"). Un título con "instrumental" o "karaoke" no se recorta nunca: esa versión no comparte letra con la original.
+- **Validación de `/search`:** solo vale un resultado si su título, sin añadidos, es el de la canción y su artista contiene a alguno de los de Spotify o está contenido en él. `/get` no se valida: ya compara título y artista.
+- **Otra versión, otra letra:** cuando ya se vio una letra con el título exacto de la canción, una de título distinto solo se acepta si comparte al menos el 60 % de las palabras. Evita que la versión en otro idioma, que puede durar lo mismo, sustituya a la que suena.
+- **Si no hay sincronizada:** texto de la versión con el título exacto; si no, el de otra versión; si no, "instrumental" cuando LRCLIB la marca así. Un registro instrumental nunca tapa un texto ya encontrado: LRCLIB tiene canciones con letra marcadas como instrumentales.
+- **LRCLIB saturado (503 o 429):** la consulta se aparta y se sigue con las demás. Si ninguna dio una letra sincronizada, se esperan 1,5 s y se repiten una vez las apartadas. Si aun así queda alguna sin respuesta, el resultado se guarda solo 5 minutos; cuando no hay nada que mostrar, la vista dice que LRCLIB está saturado en vez de que no tiene la letra.
+
+### Letra traducida (etapa 8)
+
+- **Qué se ve:** la letra original y, debajo de cada línea, su traducción al español, tanto en la letra sincronizada como en la que no tiene tiempos. La barra de estado sigue mostrando solo el original.
+- **Activación:** ajuste `spotifyLocal.translateLyrics`, activado por defecto, y comando "Activar o desactivar la traducción de la letra", que también es el botón del globo en la cabecera de la vista.
+- **El cupo manda en el diseño.** Sin correo son 5.000 caracteres al día y una letra gasta entre 700 y 2.300, así que:
+  - Solo se traduce mientras la vista "Letra" está visible. Con la vista oculta, o al cambiar de canción a medias, se deja de pedir.
+  - Las líneas repetidas se envían una vez. No se envían las que no tienen letras ni las de más de 500 bytes.
+  - Cada línea traducida se guarda en disco y no se vuelve a pedir. Una traducción igual al original se guarda como "no hace falta".
+  - Una letra claramente en español no se consulta: `looksSpanish()` lo decide con palabras frecuentes que el español no comparte con el portugués, el italiano ni el francés. Ante la duda responde que no y decide MyMemory. Con 14 letras reales acertó 13; la que falló mezcla español y francés y cayó del lado seguro.
+- **Idioma de origen:** lo detecta MyMemory en cada consulta (`autodetect|es`). Un trozo que da por español se repite, al final, con el idioma detectado en el resto de la letra, por las líneas sueltas en otro idioma; si toda la letra es español, no se repite nada.
+- **Respuesta que no cuadra línea a línea:** ese trozo se pide de línea en línea.
+- **Cupo agotado:** aviso en la vista con el tiempo que falta y, si no hay correo, la sugerencia de ponerlo. No se consulta más hasta que pase ese tiempo o cambie un ajuste de traducción.
+- **Fallo de red o del servicio:** aviso en la vista y un minuto sin consultar. La letra original se sigue viendo siempre.
+- **Correo opcional:** `spotifyLocal.translationEmail`, de ámbito `application` para que no acabe en los ajustes de un proyecto. Si no tiene forma de correo, no se envía.
 
 ## APIs externas: lo verificado
 
@@ -128,15 +159,31 @@ Verificado el 2026-10-08 contra la guía de migración y el changelog de febrero
 - Siguen disponibles todos los endpoints de `/me/player` (estado, dispositivos, transferencia, play, pause, next, previous, volume, seek, queue), además de `GET /search` y `GET /me`.
 - `GET /search`: `limit` máximo 10 y por defecto 5.
 - Biblioteca: `GET /me/playlists`, `GET /playlists/{id}/items` y `GET /me/tracks` siguen disponibles, con `limit` máximo 50. En las playlists el recuento está en `items.total` (`tracks` quedó obsoleto) y cada elemento trae la canción en `item` (`track` quedó obsoleto); en `GET /me/tracks` sigue viniendo en `track`.
-- Campos eliminados que no se deben leer. Track: `available_markets`, `external_ids`, `linked_from`, `popularity`. Album: `album_group`, `available_markets`, `external_ids`, `label`, `popularity`. Artist: `followers`, `popularity`. `GET /me`: `country`, `email`, `explicit_content`, `followers`, `product`; sin `product` no se puede comprobar Premium por API.
+- Disponibles y sin usar todavía, según el changelog de febrero de 2026 leído el 2026-10-09 (no probados con la cuenta del usuario). Con los scopes actuales: `PUT /me/player/seek`, `PUT /me/player/repeat`, `GET` y `POST /me/player/queue`, las fichas de una en una (`GET /tracks/{id}`, `/albums/{id}`, `/albums/{id}/tracks`, `/artists/{id}`, `/artists/{id}/albums`) y lo guardado (`GET /me/albums`, `/me/shows`, `/me/episodes`, `/me/audiobooks`). Con scopes nuevos: `GET /me/player/recently-played`, `GET /me/top/{type}`, `GET /me/following`, guardar y quitar con `PUT` y `DELETE /me/library` (y `GET /me/library/contains`), y editar playlists (`POST /me/playlists`, `PUT /playlists/{id}`, `POST`, `PUT` y `DELETE /playlists/{id}/items`).
+- Campos eliminados que no se deben leer. Track: `available_markets`, `linked_from`, `popularity`. Album: `album_group`, `available_markets`, `label`, `popularity`. `external_ids` se quitó de ambos en febrero de 2026 y volvió en marzo. Artist: `followers`, `popularity`. `GET /me`: `country`, `email`, `explicit_content`, `followers`, `product`; sin `product` no se puede comprobar Premium por API.
 - Endpoints eliminados en febrero de 2026: los GET por lotes (`/tracks`, `/albums`, `/artists`, `/episodes`, `/shows`, `/audiobooks`, `/chapters`), `/browse/new-releases`, `/browse/categories`, `/artists/{id}/top-tracks`, `/users/{id}`, `/users/{id}/playlists` y `/markets`. Los de playlists pasaron de `/tracks` a `/items` y los de biblioteca se unificaron en `/me/library`.
 - Eliminados desde noviembre de 2024: recommendations, audio-features, audio-analysis, related-artists y featured-playlists.
 - Tokens: el access token dura 3600 s. El refresh token dura 6 meses desde la autorización y renovar no extiende ese plazo; cuando vence, el endpoint de token responde `invalid_grant` y hay que volver a iniciar sesión. La respuesta de renovación puede no traer `refresh_token`, y entonces se conserva el anterior.
 
 ### LRCLIB
 
-- `GET https://lrclib.net/api/get` con `track_name`, `artist_name`, `album_name` y `duration` en segundos. Devuelve un objeto si hay coincidencia exacta. Con los metadatos de Spotify tal cual, incluidos títulos como "Bohemian Rhapsody - Remastered 2011", respondió 200 en las tres canciones reales probadas.
-- `GET https://lrclib.net/api/search` con `track_name` y `artist_name`. Devuelve un array de hasta 20 resultados, o `[]` si el título existe pero el artista no coincide.
+- `GET https://lrclib.net/api/get` con `track_name`, `artist_name`, `album_name` y `duration` en segundos; `album_name` y `duration` son opcionales. Devuelve un objeto, o 404 si no hay coincidencia. No distingue mayúsculas ni signos del título ("X - Remastered 2011" encuentra "X (Remastered 2011)") y, entre varias versiones, elige por duración con un margen de 2 o 3 s.
+- **En `/get` el álbum es un filtro estricto:** con un `album_name` que LRCLIB no tiene responde 404 aunque la canción exista. Los nombres de álbum de Spotify (ediciones de lujo, remasterizaciones) fallan a menudo.
+- `/get` puede devolver un registro sin tiempos mientras existe uno sincronizado bajo el título sin añadidos.
+- `GET https://lrclib.net/api/search` con `track_name` y `artist_name`, o con `q` como texto libre. Devuelve un array de hasta 20 resultados, que no son necesariamente los de duración más parecida, o `[]`. Con `q` llegan también registros ajenos: títulos al estilo de YouTube, artistas "- Topic" y canciones de otros artistas con el mismo título.
 - Campos útiles: `id`, `trackName`, `artistName`, `albumName`, `duration` (segundos, decimal), `instrumental`, `plainLyrics`, `syncedLyrics`.
-- **Para una canción que no conoce, LRCLIB no responde de forma consistente:** unas veces 404 y muchas otras 503 con cuerpo vacío en medio segundo, tanto en `/get` como en `/search`. Un 503 no significa que el servicio esté caído, y por eso no se reintenta.
+- **El 503 es pasajero.** El cuerpo es `{"message":"The server is busy, please retry in a moment","name":"ServerOverload"}` y la misma consulta responde 200 o 404 un momento después. Llega tanto en `/get` como en `/search`, con canciones que LRCLIB tiene y con las que no. En la etapa 4 se interpretó como "canción desconocida" y no se reintentaba; era un error.
 - Enviar un `User-Agent` que identifique la extensión. Solo ASCII: `fetch` rechaza cabeceras con tildes.
+
+### MyMemory
+
+Verificado el 2026-10-09 con llamadas reales, sin correo. La documentación oficial solo describe los parámetros y los cupos, no la respuesta.
+
+- `GET https://api.mymemory.translated.net/get` con `q` (500 bytes como máximo) y `langpair` (`en|es`). El origen puede ser `autodetect`, y entonces la respuesta trae `responseData.detectedLanguage`.
+- Cupo: 5.000 caracteres al día sin identificarse y 50.000 con un correo en el parámetro `de`. No hace falta clave ni registro.
+- **Los saltos de línea de `q` se conservan** en la traducción automática: 12 líneas enviadas, 12 recibidas. Es lo que permite traducir una letra en 2 a 5 consultas.
+- Respuesta correcta: `responseStatus: 200` (número), `responseData.translatedText` y `matches`, donde la traducción automática lleva `created-by: "MT!"`. Las demás entradas de `matches` vienen de memorias de traducción ajenas y pueden traer etiquetas o las líneas unidas.
+- **Los errores llegan con HTTP 200** y `responseStatus` como texto. Con origen y destino iguales: `"403"` y `responseDetails: "PLEASE SELECT TWO DISTINCT LANGUAGES"`.
+- La cabecera `Retry-After` viene también en las respuestas correctas, con los segundos que faltan para que se renueve el cupo.
+- Una consulta tarda entre 0,3 y 4,5 s.
+- **Sin verificar:** la respuesta con el cupo agotado. El código espera HTTP o `responseStatus` 429, `quotaFinished: true` y un aviso "MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY. NEXT AVAILABLE IN …"; es lo que se conoce del servicio, no algo que se haya visto. Tampoco se sabe si las consultas que acaban en error descuentan cupo.
