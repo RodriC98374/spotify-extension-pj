@@ -24,3 +24,17 @@ export function getShowLyricsInStatusBar(): boolean {
 export function setShowLyricsInStatusBar(value: boolean): Thenable<void> {
   return settings().update('showLyricsInStatusBar', value, vscode.ConfigurationTarget.Global);
 }
+
+export function getTranslateLyrics(): boolean {
+  return settings().get<boolean>('translateLyrics', true);
+}
+
+export function setTranslateLyrics(value: boolean): Thenable<void> {
+  return settings().update('translateLyrics', value, vscode.ConfigurationTarget.Global);
+}
+
+/** Correo opcional con el que el usuario se identifica ante el servicio de traducción; vacío si no quiere. */
+export function getTranslationEmail(): string {
+  const email = settings().get<string>('translationEmail', '').trim();
+  return /^\S+@\S+\.\S+$/.test(email) ? email : '';
+}
