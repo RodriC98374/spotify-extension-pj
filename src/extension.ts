@@ -5,12 +5,18 @@ import {
   CONFIG_SECTION,
   getLyricsOffsetMs,
   getShowLyricsInStatusBar,
+  getTranslateLyrics,
+  getTranslationEmail,
   setLyricsOffsetMs,
   setShowLyricsInStatusBar,
+  setTranslateLyrics,
 } from './config';
 import { describeError } from './errors';
 import { LyricsSource } from './lyrics/lrclib';
 import { LyricsSync } from './lyrics/lyricsSync';
+import { LyricsTranslator } from './lyrics/lyricsTranslator';
+import { MyMemory } from './lyrics/mymemory';
+import { TranslationStore } from './lyrics/translationStore';
 import { SpotifyClient } from './spotify/client';
 import { Library } from './spotify/library';
 import { PlaybackMonitor } from './spotify/playbackMonitor';
@@ -39,7 +45,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const userAgent = `spotify-local-vscode/${context.extension.packageJSON.version} (personal VS Code extension)`;
   const lyricsSource = new LyricsSource(userAgent, log);
   const lyrics = new LyricsSync(monitor, (track) => lyricsSource.get(track), getLyricsOffsetMs);
-  const lyricsView = new LyricsViewProvider(lyrics);
+  // Las traducciones se guardan en el almacenamiento propio de la extensión, fuera de cualquier proyecto.
+  const translator = new LyricsTranslator(
+    new MyMemory(userAgent, getTranslationEmail, log),
+    new TranslationStore(vscode.Uri.joinPath(context.globalStorageUri, 'translations').fsPath),
+    getTranslateLyrics,
+    log,
+  );
+  const lyricsView = new LyricsViewProvider(lyrics, translator);
   const guard = new DeviceGuard(player, log);
   const library = new Library(client, auth);
   const libraryView = new LibraryTreeProvider(library, auth);
@@ -50,6 +63,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     monitor,
     statusBar,
     lyrics,
+    translator,
     lyricsView,
     library,
     libraryView,
@@ -97,6 +111,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register('spotifyLocal.toggleStatusBarLyrics', () => setShowLyricsInStatusBar(!getShowLyricsInStatusBar()));
   register('spotifyLocal.lyricsOffsetIncrease', () => changeLyricsOffset(LYRICS_OFFSET_STEP_MS));
   register('spotifyLocal.lyricsOffsetDecrease', () => changeLyricsOffset(-LYRICS_OFFSET_STEP_MS));
+  register('spotifyLocal.toggleTranslation', async () => {
+    const enabled = !getTranslateLyrics();
+    await setTranslateLyrics(enabled);
+    vscode.window.setStatusBarMessage(`Spotify: traducción de la letra ${enabled ? 'activada' : 'desactivada'}`, 2500);
+  });
 
   let loggedIn = false;
   const render = (): void => statusBar.render(loggedIn, monitor.state);
@@ -111,6 +130,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Un offset nuevo puede cambiar la línea actual sin esperar al siguiente recálculo.
         lyrics.refresh();
         renderLyric();
+      }
+      const translationChanged = ['translateLyrics', 'translationEmail'].some((key) =>
+        event.affectsConfiguration(`${CONFIG_SECTION}.${key}`),
+      );
+      if (translationChanged) {
+        // Con la traducción recién activada, o con un correo nuevo, se vuelve a consultar sin esperar.
+        translator.reset();
+        lyricsView.refresh();
       }
     }),
     auth.onDidChangeSession((value) => {

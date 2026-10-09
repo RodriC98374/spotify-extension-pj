@@ -1,8 +1,8 @@
 {
   "name": "spotify-local",
   "displayName": "Spotify Local",
-  "description": "Controla Spotify, busca canciones y muestra la letra sincronizada desde VS Code. Uso personal.",
-  "version": "0.2.0",
+  "description": "Controla Spotify, busca canciones y muestra la letra sincronizada y traducida desde VS Code. Uso personal.",
+  "version": "0.4.0",
   "publisher": "local",
   "private": true,
   "license": "UNLICENSED",
@@ -101,6 +101,12 @@
         "category": "Spotify"
       },
       {
+        "command": "spotifyLocal.toggleTranslation",
+        "title": "Activar o desactivar la traducción de la letra",
+        "category": "Spotify",
+        "icon": "$(globe)"
+      },
+      {
         "command": "spotifyLocal.pickFromLibrary",
         "title": "Elegir de mi biblioteca",
         "category": "Spotify"
@@ -119,6 +125,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "spotifyLocal.toggleTranslation",
+          "when": "view == spotifyLocal.lyrics",
+          "group": "navigation"
+        },
         {
           "command": "spotifyLocal.refreshLibrary",
           "when": "view == spotifyLocal.library",
@@ -179,6 +190,17 @@
           "type": "boolean",
           "default": true,
           "description": "Muestra la línea actual de la letra en la barra de estado."
+        },
+        "spotifyLocal.translateLyrics": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Muestra debajo de cada línea de la letra su traducción al español. La traducción es automática y gratuita: las líneas de la letra se envían a [MyMemory](https://mymemory.translated.net), que admite unas pocas canciones nuevas al día."
+        },
+        "spotifyLocal.translationEmail": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "Opcional. Correo con el que identificarte ante [MyMemory](https://mymemory.translated.net/doc/usagelimits.php): sube el cupo de traducción de 5.000 a 50.000 caracteres al día. Se envía a MyMemory con cada consulta de traducción, y a nadie más."
         }
       }
     }
