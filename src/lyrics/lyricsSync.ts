@@ -21,7 +21,7 @@ export type LyricsContent =
   | { status: 'synced'; track: Track; lines: LyricLine[] }
   | { status: 'plain'; track: Track; lines: string[] }
   | { status: 'instrumental'; track: Track }
-  /** `uncertain`: LRCLIB falló en vez de decir claramente que no tiene la letra. */
+  /** `uncertain`: LRCLIB estaba saturado y alguna consulta quedó sin respuesta. */
   | { status: 'missing'; track: Track; uncertain: boolean }
   | { status: 'error'; track: Track; message: string };
 

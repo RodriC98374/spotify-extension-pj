@@ -76,7 +76,7 @@ function describe(content: LyricsContent): { synced: boolean; lines: string[]; m
         synced: false,
         lines: [],
         message: content.uncertain
-          ? 'LRCLIB no devolvió la letra de esta canción: puede que no la tenga o que el servicio esté fallando.'
+          ? 'LRCLIB está saturado y no pudo terminar de buscar la letra de esta canción. Se buscará de nuevo cuando vuelva a sonar, pasados unos minutos.'
           : 'LRCLIB no tiene la letra de esta canción.',
       };
     case 'error':
